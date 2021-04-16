@@ -36,7 +36,7 @@ doc_size = len(words)
 vocab_size = len(dictionary)
 n_hidden = 512
 emb_dim = 10
-n_input = 3
+n_input = 7
 
 def build_dataset(content):
     x = []
@@ -70,7 +70,7 @@ x_train, y_train = build_dataset(words)
 x_train = x_train.reshape(-1, n_input, 1).astype('float32')
 # tf.reshape(x_train, shape=(x_train.get_shape()[0], x_train.get_shape()[1], x_train.get_shape()[2]))
 #  = tf.reshape(y_train, shape=(-1, y_train))
-model.fit(x_train, y_train, epochs=350, verbose=2)
+model.fit(x_train, y_train, epochs=100, verbose=2)
 
 
 def predict_next(input_words):
@@ -86,3 +86,4 @@ def loop(words, times):
         new_word = predict_next(seq)
         print(new_word, end=' ')
         seq = seq[1:] + [new_word]
+predict_next(["general", "council", "to"])
