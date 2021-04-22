@@ -14,35 +14,60 @@ from tensorflow.keras import layers
 from tensorflow.compat.v1 import placeholder
 from tensorflow.keras.callbacks import LambdaCallback
 
-filename = "aesops_fable.txt"
+filename = "penn_train.txt"
+sos = "<sos>"
+eos = "<eos>"
+# def read_file(fn):
+#     with open(fn, mode='r', encoding='utf_8') as file:
+#         content = file.read()
+#     return content.split()
 
-def read_file(fn):
+# assumes every sentence has its own line
+def read_lines(fn):
     with open(fn, mode='r', encoding='utf_8') as file:
-        content = file.read()
-    tokenizer = RegexpTokenizer(r'\w+')
-    return tokenizer.tokenize(content)
+        content = file.readlines()
+    content = [' '.join([sos, sent, eos]) for sent in content]
+    # tokenizer = RegexpTokenizer(r'\w')
+    return [sent.split() for sent in content]
+
+def flatten_sentences(sents):
+    whole_text = []
+    for sent in sents:
+        whole_text = whole_text + sent
+    return whole_text
 
 def build_dictionary(words):
     count = collections.Counter(words).most_common()
     dictionary = dict()
     for word, _ in count:
-        dictionary[word] = len(dictionary)
+        dictionary[word] = len(dictionary) + 1
     reverse_dict = dict(zip(dictionary.values(), dictionary.keys()))
     return dictionary, reverse_dict
 
-words = read_file(filename)
+# def build_dictionary_mask(words):
+#     all_words = []
+#     for sent in words:
+#         all_words = all_words + sent
+    
+#     return build_dictionary(all_words)
+
+max_sentences = 100
+# words = read_file(filename)
+words = read_lines(filename)
+words = words[:max_sentences]
+words = flatten_sentences(words)
+# dictionary, reverse_dict = build_dictionary(words)
 dictionary, reverse_dict = build_dictionary(words)
 doc_size = len(words)
-vocab_size = len(dictionary)
+vocab_size = len(dictionary) 
 n_hidden = 512
 emb_dim = 10
-
 
 rnn_units = n_hidden
 input_dim = emb_dim
 batch_size = 1
-time_step = 3
-sequence_len = 7
+# time_step = 3
+sequence_len = 20
 
 def build_dataset(content):
     x = []
@@ -59,6 +84,33 @@ def build_dataset(content):
     x = np.array(x)
     y = np.array(y)
     return x, y
+
+# def build_dataset_mask(content):
+#     x = []
+#     y = []
+#     for sent in content:
+#         if len(sent) >= sequence_len + 1:
+#             for i in range(len(sent) - sequence_len):
+#                 step_words = sent[i : i + sequence_len]
+#                 label = dictionary[sent[i + sequence_len]]
+#                 seq_words = []
+#                 for word in step_words:
+#                     seq_words.append(dictionary[word])
+#                 x.append(np.array(seq_words))
+#                 y.append(label)
+#         elif len(sent) >= 2:
+#             step_words = sent[:-1]
+#             label = dictionary[sent[-1]]
+#             seq_words = []
+#             for word in step_words:
+#                 seq_words.append(dictionary[word])
+#             x.append(np.array(seq_words))
+#             y.append(label)
+#     x = np.array(x, dtype='object')
+#     y = np.array(y)
+    
+#     return x,y
+            
 
 # Test gate layer!!
 # assumes batch size is 1!!
@@ -231,7 +283,8 @@ def get_class_label(array):
 rng = default_rng()
 x_train, y_train = build_dataset(words)
 # [samples, time_step, feature]
-x_train = x_train.reshape((-1, sequence_len)).astype('float32')
+# x_train = tf.keras.preprocessing.sequence.pad_sequences(x_train, padding='post', dtype='int32')
+x_train = x_train.reshape((-1, sequence_len)).astype('int32')
 # y_train = y_train.reshape((-1, y_train.shape[0])).T
 
 # y_train = y_train.reshape(-1, y_train.shape[0])
@@ -239,32 +292,34 @@ x_train = x_train.reshape((-1, sequence_len)).astype('float32')
 
 rng = default_rng()
 # initial_state =  [tf.zeros([batch_size, rnn_units]), tf.zeros([batch_size, rnn_units])]
+model = None
 
-states = [tf.constant(rng.uniform(-1, 1, rnn_units)), tf.constant(rng.uniform(-1, 1, rnn_units))]
-inputs = keras.Input((sequence_len))
-# take in [batch_size, input_length] where input_length is the length of a sequence of 
-# inputs
-embed = layers.Embedding(vocab_size, input_dim, name="embed")
-# outputs shape of (batch_size, input_length, output_dim)
-v = embed(inputs)
-#[batch_size, time_steps, input_dim]
-onlstm_outputs = layers.RNN(ONLSTM_Cell(rnn_units),name="onlstm")(v)
-output = layers.Dense(vocab_size, activation="softmax", name="output")(onlstm_outputs)
-model = keras.Model(inputs=inputs, outputs=output)
-model.compile(optimizer=keras.optimizers.Adam(), loss=keras.losses.SparseCategoricalCrossentropy())
-# print_weights = LambdaCallback(on_epoch_end=lambda batch, logs: print(model.layers[0].get_weights()))
-model.fit(x_train, y_train, epochs=150, verbose=2)
+def fit_model():
+    states = [tf.constant(rng.uniform(-1, 1, rnn_units)), tf.constant(rng.uniform(-1, 1, rnn_units))]
+    inputs = keras.Input((sequence_len))
+    # take in [batch_size, input_length] where input_length is the length of a sequence of 
+    # inputs
+    embed = layers.Embedding(vocab_size+1, input_dim, name="embed")
+    # outputs shape of (batch_size, input_length, output_dim)
+    v = embed(inputs)
+    #[batch_size, time_steps, input_dim]
+    onlstm_outputs = layers.RNN(ONLSTM_Cell(rnn_units),name="onlstm")(v)
+    output = layers.Dense(vocab_size+1, activation="softmax", name="output")(onlstm_outputs)
+    model = keras.Model(inputs=inputs, outputs=output)
+    model.compile(optimizer=keras.optimizers.Adam(), loss=keras.losses.SparseCategoricalCrossentropy())
+    # print_weights = LambdaCallback(on_epoch_end=lambda batch, logs: print(model.layers[0].get_weights()))
+    model.fit(x_train, y_train, epochs=200, verbose=2)
 
-
+fit_model()
 
 def predict_next(input_words):
     input_words = np.array([dictionary[word] for word in input_words])
-    input_words = input_words.reshape(-1, sequence_len, 1)
+    input_words = input_words.reshape(-1, len(input_words), 1)
     res = np.array(model.predict(input_words))
     res = res.reshape(vocab_size)
     return reverse_dict[tf.math.argmax(res).numpy()]
 
-print(predict_next(["the", "mice", "had", "a", "general", "council", "to"]))
+# print(predict_next(["the", "mice", "had", "a", "general", "council", "to"]))
 
 # print(model.predict_class(t))
 
